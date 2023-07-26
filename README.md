@@ -1,70 +1,131 @@
-# Getting Started with Create React App
+# Youtube Assistant.ai
 
-This project was bootstrapped with [Create React App](https://github.com/facebook/create-react-app).
+This is a simple application that was developed after I was introduced to Langchain (a framework for developing applications powered by language models). It allows users to provide any youtube URL and ask it questions based on the video transcript. The program creates a searchable database based on the transcript and performs a similarity search (using FAISS library) to grab the most relevant chunks of information based on the query. The program then sends a prompt to chatGPT with the relevant chunks of information and responds with a precise answer.
 
-## Available Scripts
+Please feel free to test out the application for yourself <a href="https://youtubeassistant.netlify.app/">here</a>.
 
-In the project directory, you can run:
+# Getting started/Code Installation
 
-### `npm start`
+1. **Clone the repository**
 
-Runs the app in the development mode.\
-Open [http://localhost:3000](http://localhost:3000) to view it in your browser.
+```
+git clone https://github.com/maxim-pre/Youtube_assistant.git
+```
 
-The page will reload when you make changes.\
-You may also see any lint errors in the console.
+2. **Create a python environment**
 
-### `npm test`
+```
+cd youtube_assistant
+python3 -m venv env
+source env/bin/activate
+```
 
-Launches the test runner in the interactive watch mode.\
-See the section about [running tests](https://facebook.github.io/create-react-app/docs/running-tests) for more information.
+3. **Install the required Dependencies**
 
-### `npm run build`
+```
+pip install -r requirements.txt
+```
 
-Builds the app for production to the `build` folder.\
-It correctly bundles React in production mode and optimizes the build for the best performance.
+4. **Set up the OPENAI_API_KEY in a .env file**
 
-The build is minified and the filenames include the hashes.\
-Your app is ready to be deployed!
+OpenAI provides users with a free API key when users sign up for one month.
 
-See the section about [deployment](https://facebook.github.io/create-react-app/docs/deployment) for more information.
+First, create a .env file in the root directory of the project. Inside the file add your OpenAI API key:
 
-### `npm run eject`
+```
+OPENAI_API_KEY="your_api_key_here"
+```
 
-**Note: this is a one-way operation. Once you `eject`, you can't go back!**
+# Technologies Used
 
-If you aren't satisfied with the build tool and configuration choices, you can `eject` at any time. This command will remove the single build dependency from your project.
+- **LangChain**
+- **Django REST Framework**
+- **React**
+- **Faiss**
+- **Python3**
+- **JavaScript**
 
-Instead, it will copy all the configuration files and the transitive dependencies (webpack, Babel, ESLint, etc) right into your project so you have full control over them. All of the commands except `eject` will still work, but they will point to the copied scripts so you can tweak them. At this point you're on your own.
+# Build/Code Process
 
-You don't have to ever use `eject`. The curated feature set is suitable for small and middle deployments, and you shouldn't feel obligated to use this feature. However we understand that this tool wouldn't be useful if you couldn't customize it when you are ready for it.
+lib/chatgpt.py
 
-## Learn More
+```python
+import os
+from dotenv import find_dotenv, load_dotenv
+from langchain.embeddings import OpenAIEmbeddings
+from langchain.document_loaders import YoutubeLoader
+from langchain.vectorstores import FAISS
+from langchain.text_splitter import RecursiveCharacterTextSplitter
+from langchain.llms import OpenAI
+from langchain.chains import LLMChain
+from langchain import PromptTemplate
+from langchain.chat_models import ChatOpenAI
 
-You can learn more in the [Create React App documentation](https://facebook.github.io/create-react-app/docs/getting-started).
+# this loads the OPENAI_API_KEY from our .env file. The library that requires the apikey will recognise the name and use its value
+load_dotenv(find_dotenv())
 
-To learn React, check out the [React documentation](https://reactjs.org/).
+OPENAI_API_KEY = os.environ.get('OPENAI_API_KEY')
 
-### Code Splitting
+# this embeddings model is used to create a vector representation of a piece of text for OpenAI.
+embeddings_model = OpenAIEmbeddings(openai_api_key=OPENAI_API_KEY)
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/code-splitting](https://facebook.github.io/create-react-app/docs/code-splitting)
+def create_db_from_youtube_video_url(url):
+    # use langchain's document loaders to get a full transcript of a youtube video from it's url
+    loader = YoutubeLoader.from_youtube_url(url)
+    transcript = loader.load() # contains the entire content of the video as a string "transcript[0].page_content"
 
-### Analyzing the Bundle Size
+    # video transcripts can contain hundres of thousands of characters so we need a way to break it up so we only use the parts with relevant info.
+    # Here we are splitting the transcript into chunks of 1000 characters
+    # RecursiveCharacterTextSplitter is recommended by Langchain for Generic text
+    # It tries to keep paragraphs, sentences and words together as long as possible, as these would have the most semantically related info.
+    text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=100)
+    # creates an array of langchain document objects each with content containing characters equal to chunk size
+    docs = text_splitter.split_documents(transcript)
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size](https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size)
 
-### Making a Progressive Web App
+    # Here I am creating a database of the vector representation of the documents using the embeddings model defined earlier
+    # I am also using FAISS (Facebook AI Similariy Search) library so that when someone asks a question about the transcript
+    # We can perform a silmilarity search to find the most relevant chunks
+    db = FAISS.from_documents(docs, embeddings_model)
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app](https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app)
+    return db
 
-### Advanced Configuration
+def get_response_from_query(db, query, k=4):
+    # k is the number of documents we are allowing the ai to use to answer the query
+    # I will be using gpt-3.5-turbo which has a maximum tokens of 4096
+    # setting k=4 therefore means we can utilise the token capacity (4 * 1000 = 4000)
+    docs = db.similarity_search(query, k=k)
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/advanced-configuration](https://facebook.github.io/create-react-app/docs/advanced-configuration)
+    # the following line is a string of the most relevant information in the transcript based on the given query
+    docs_page_content = ' '.join([d.page_content for d in docs])
 
-### Deployment
+    # llm = OpenAI(model_name="gpt-3.5-turbo")
+    llm = ChatOpenAI(openai_api_key=OPENAI_API_KEY)
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/deployment](https://facebook.github.io/create-react-app/docs/deployment)
 
-### `npm run build` fails to minify
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify](https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify)
+    # here I am creating a prompt that I will send to the llm.
+    prompt = PromptTemplate(
+        input_variables=["question", "docs"],
+        template="""
+        You are a helpful assistant that can answers questions about youtube videos based on the videos transcript.
+
+        Answer the following questions: {question}
+
+        By Searching the following transcript: {docs}
+
+        Only use Factual information from the transcript to answer the question.
+
+        If you don't have enough information to answer the question, say "I don't know".
+
+        Your answers should be verbose and detailed.
+
+        """
+
+    )
+
+    # Here we are Creating a chain using Langchain's Chain class to combine the prompt we defined earlier with the llm.
+    chain = LLMChain(llm=llm, prompt=prompt)
+    response = chain.run(question=query, docs=docs_page_content)
+    return response
+```
