@@ -7,7 +7,6 @@ import LoadingAnimation from "./components/common/loadingAnimation";
 function App() {
   const [response, setResponse] = useState("");
   const [loading, setLoading] = useState(false);
-  console.log(response);
   return (
     <div className="App flex flex-col items-center h-screen bg-gray-900 py-8 px-6">
       <div className=" w-full">
