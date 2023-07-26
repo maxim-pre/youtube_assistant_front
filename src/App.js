@@ -32,7 +32,7 @@ function App() {
           checkout the source code on my{" "}
           <a
             className="text-blue-500 underline cursor-pointer"
-            href="https://google.com"
+            href="https://github.com/maxim-pre/youtube_assistant_front"
             target="_blank"
           >
             GitHub
